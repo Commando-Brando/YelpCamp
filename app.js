@@ -1,7 +1,8 @@
-const express = require('express');
+const express = require('express'); // npm package that lets us maintain and create routes
 const path = require('path');
 const mongoose = require('mongoose'); // mongoose is our ORM system which is our abstracted layer to our MongoDB
 const ejsmate = require('ejs-mate'); // ejs for requiring templates
+const { campgroundSchema } = require('./schemas.js'); // our Joi schemas 
 const catchAsync = require('./utils/catchAsync'); // our async error catching wrapper
 const ExpressError = require('./utils/ExpressError'); // our custom express error handling class
 const methodOverride = require('method-override'); // lets us use methods outsides of the basic express set
@@ -24,6 +25,16 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 app.use(methodOverride('_method'));
 
+const validateCampground = (req, res, next) => {
+    const { error } = campgroundSchema.validate(req.body);
+    if (error) {
+        const msg = error.details.map(el => el.message).join(',')
+        throw new ExpressError(msg, 400)
+    } else {
+        next();
+    }
+}
+
 app.get('/', (req, res) => {
     res.render('home')
 })
@@ -37,7 +48,8 @@ app.get('/campgrounds/new', (req, res) => {
     res.render('campgrounds/new');
 })
 
-app.post('/campgrounds', catchAsync(async (req, res, next) => {
+app.post('/campgrounds', validateCampground, catchAsync(async (req, res, next) => {
+    // if (!req.body.campground) throw new ExpressError('Invalid Campground Data', 400);
     const campground = new Campground(req.body.campground);
     await campground.save();
     res.redirect(`/campgrounds/${campground._id}`)
@@ -53,7 +65,7 @@ app.get('/campgrounds/:id/edit', catchAsync(async (req, res) => {
     res.render('campgrounds/edit', { campground });
 }))
 
-app.put('/campgrounds/:id', catchAsync(async (req, res) => {
+app.put('/campgrounds/:id', validateCampground, catchAsync(async (req, res) => {
     const { id } = req.params;
     const campground = await Campground.findByIdAndUpdate(id, { ...req.body.campground })
     res.redirect(`/campgrounds/${campground._id}`)
@@ -66,11 +78,13 @@ app.delete('/campgrounds/:id', catchAsync(async (req, res) => {
 }))
 
 app.all('*', (req, res, next) => {
-
+    next(new ExpressError('Page Not Found', 404))
 })
 
 app.use((err, req, res, next) => {
-    res.send("Oh boy, something went wrong");
+    const { statusCode = 500 } = err;
+    if (!err.message) err.message = 'Oh No, Something Went Wrong!'
+    res.status(statusCode).render('error', { err });
 })
 
 app.listen(3000, () => {
